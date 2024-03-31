@@ -1,0 +1,550 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+# MT5758 Assignment 3
+
+## Research Question:
+
+#### "What are the predominant socio-economic patterns and groupings among the world's nations,?"
+
+## I) Data Processing
+
+#### 1) Import Data And Dependencies
+
+```{r}
+# Import dependencies
+library(dplyr)
+#library(ggplot2)
+library(gridExtra)
+library(corrplot)
+library(corrplot)
+library(grDevices)
+library(corrplot)
+library(magick)
+library(GGally)
+library(ggplot2)
+library(knitr)
+library(markdown)
+library(readr)
+library(dplyr)
+library(RColorBrewer)
+library(tidyr)
+library(ggplot2)
+
+# Import Data
+library(readr)
+
+# Read Data
+country_data <- read_csv("Country-data.csv.xls", show_col_types = FALSE)
+
+# We have also created a python script to append our country coordinates and the continent
+country_data_Continents_coordinates <- read_csv("Corr_continent_country_data.csv")
+```
+
+#### 2) Data cleaning
+
+##### 1) Null values & duplicate rows
+
+```{r}
+# Inspect null values
+null_values <- sapply(country_data_Continents_coordinates, function(x) sum(is.na(x)))
+
+# Check for duplicate rows
+duplicate_rows <- sum(duplicated(country_data_Continents_coordinates))
+
+# Display the null values count for each column and duplicate rows count
+print("Null values in each column:")
+print(null_values)
+print(paste("Number of duplicate rows:", duplicate_rows))
+```
+
+#### 3) Exploratory analysis
+
+#### A) Statistics
+
+```{r}
+summary(country_data_Continents_coordinates)
+```
+
+#### B) Density plots
+
+```{r}
+# List of numeric variables (excluding 'country')
+numeric_vars <- names(country_data)[sapply(country_data, is.numeric)]
+
+# Create a list to store the ggplot objects
+plot_list <- list()
+
+# Generate density plots for each variable
+for (var in numeric_vars) {
+    p <- ggplot(country_data, aes_string(x = var)) +
+        geom_density(fill = "#ADD8E6", alpha = 0.5, color = "darkblue") + # Changed outline color to dark blue
+        theme_minimal() +
+        ggtitle(paste(var))
+    plot_list[[var]] <- p
+}
+
+# Arrange the plots in a grid
+grid_plots <- do.call(grid.arrange, c(plot_list, ncol = 3, nrow = 3))
+
+grid_plots
+```
+
+#### C) Correlation Map
+
+```{r}
+# Define a custom color palette with light green and dark blue
+custom_palette <- colorRampPalette(colors = c("white", "darkblue"))
+
+# Compute the correlation matrix
+correlation_matrix <- cor(country_data[, sapply(country_data, is.numeric)], use = "complete.obs")
+
+# Create the correlation plot using the custom palette
+corrplot(correlation_matrix, method = "color", col = custom_palette(200), 
+         order = "hclust", addCoef.col = "black", tl.col = "white", tl.cex = 0.3)  # Adjust tl.cex for text size
+
+```
+
+#### D) Scatter plot Matrix
+
+```{r}
+# Set plot size (modify the width and height as needed)
+options(repr.plot.width = 12, repr.plot.height = 12)
+
+# Customize the ggpairs call with adjusted axis text and add a title
+ggpairs(country_data[, numeric_vars],
+        lower = list(continuous = wrap(ggally_blank)),  # Blank plots for lower triangle
+        upper = list(continuous = wrap(ggally_points, colour = "lightblue", size = 1)),  # Scatter plots in light blue for upper triangle
+        diag = list(continuous = wrap(ggally_blank)),  # Blank plots for diagonal
+        progress = FALSE,  # Disable progress messages
+        axisLabels = "show"  # Ensure axis labels are shown
+) + theme_minimal() +
+    theme(axis.text.y = element_text(size = 0.2, angle = 75, hjust = 1),  # Adjust text size and angle for Y-axis
+          axis.text.x = element_text(size = 11, angle = 45, hjust = 1),  # Adjust text size and angle for X-axis
+          plot.title = element_text(hjust = 0.5, size = 12, face = "bold")) +  # Add and customize plot title
+    ggtitle("Socio-Economic Indicators")  
+```
+
+#### E) Maps
+
+To get an initial Idea of the geographical distribution, we decided to write a python script (map.py, available in repository) to visualize the data.
+
+```{r}
+# Embed the image in the notebook
+include_graphics("Plots/world_gdpp_map.png")
+```
+
+```{r}
+# Embed the image in the notebook
+include_graphics("Plots/world_income_map.png")
+```
+
+```{r}
+# Embed the image in the notebook
+include_graphics("Plots/world_life_expec_map.png")
+```
+
+#### 4) Normalize the Data
+
+```{r}
+# Extract numeric columns
+numeric_columns <- country_data_Continents_coordinates[, sapply(country_data_Continents_coordinates, is.numeric)]
+
+# Normalize all numeric columns by centering and scaling
+normalized_data <- scale(numeric_columns)
+
+# Add the 'country' and 'continent' columns to the normalized dataframe
+normalized_data_with_country_continent <- cbind(country_data_Continents_coordinates[c("country", "continent")], as.data.frame(normalized_data))
+
+# Create a copy of the original dataframe without 'country' and 'continent' columns
+data_without_country_continent <- country_data_Continents_coordinates[, !(names(country_data_Continents_coordinates) %in% c("country", "continent"))]
+
+# Combine the normalized numeric columns with the copy of the original dataframe
+normalized_data_without_country_continent <- as.data.frame(normalized_data)
+
+# View the first few rows of both dataframes
+head(normalized_data_with_country_continent)
+head(normalized_data_without_country_continent)
+
+```
+
+#### F) Parallel coordinate Plot
+
+```{r}
+# Reshape the normalized data into a long format after removing rows with NA continent
+long_data <- normalized_data_with_country_continent %>%
+  filter(!is.na(continent)) %>%
+  pivot_longer(cols = child_mort:gdpp, 
+               names_to = "variable", 
+               values_to = "value")
+
+# Identify outliers
+outliers <- long_data %>%
+  group_by(variable) %>%
+  mutate(is_outlier = value < quantile(value, 0.05) | value > quantile(value, 0.95))
+
+# Create the parallel coordinates plot with labels for outliers
+ggplot(long_data, aes(x = variable, y = value, group = country, color = continent)) +
+    geom_line() +
+    geom_text_repel(data = outliers[outliers$is_outlier, ], aes(label = country), 
+                    nudge_y = 0.2, nudge_x = 0.1, segment.color = "transparent", 
+                    size = 3, show.legend = FALSE) +  # Label outliers
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+#### 
+
+## **II) Multidimensional Scaling**
+
+#### 1) MDS Euclidean
+
+```{r}
+# Compute the distance matrix excluding country data
+distance_matrix_euclidian <- dist(data_without_country_continent, method = "euclidean")
+
+mds_result_euclidean <- cmdscale(d = distance_matrix_euclidian, eig = TRUE)
+```
+
+#### 2) MDS Manhatan
+
+```{r}
+# Compute the distance matrix excluding country data
+distance_matrix_manhattan <- dist(data_without_country_continent, method = "manhattan")
+
+# Perform MDS using the Manhattan distance
+mds_result_manhattan <- cmdscale(d = distance_matrix_manhattan, eig = TRUE)
+
+```
+
+#### 3) MDS Correlation
+
+```{r}
+# Compute the correlation matrix excluding country data
+correlation_matrix <- cor(data_without_country_continent)
+
+# Convert the correlation matrix into a dissimilarity matrix
+# Dissimilarity is computed as 1 - correlation
+dissimilarity_matrix_correlation <- as.dist(1 - correlation_matrix)
+
+# Perform MDS using the correlation-based dissimilarity matrix
+mds_result_correlation <- cmdscale(d = dissimilarity_matrix_correlation, eig = TRUE)
+
+```
+
+#### 4) interpret Eigenvalues
+
+```{r}
+# Get the eigenvalues for each method
+eig_euclidean <- mds_result_euclidean$eig[1:9]
+eig_manhattan <- mds_result_manhattan$eig[1:9]
+eig_correlation <- mds_result_correlation$eig[1:9]
+
+# Calculate the proportions
+prop_euclidean <- eig_euclidean / sum(eig_euclidean, na.rm = TRUE)
+prop_manhattan <- eig_manhattan / sum(eig_manhattan, na.rm = TRUE)
+prop_correlation <- eig_correlation / sum(eig_correlation, na.rm = TRUE)
+
+# Create a vector for x-axis (eigenvalues index)
+x_values <- 1:9
+
+# Plot the proportions
+plot(x_values, prop_euclidean, type = "l", col = "darkblue", xlab = "Eigenvalue Index", ylab = "Proportion of Eigenvalues",
+     main = "Eigenvalues from Different Methods")
+lines(x_values, prop_manhattan, col = "darkred")
+lines(x_values, prop_correlation, col = "darkgreen")
+legend("topright", legend = c("Euclidean", "Manhattan", "Correlation"), col = c("darkblue", "darkred", "darkgreen"), lty = 1)
+
+# Add grid for better visualization
+grid()
+```
+
+#### 5) Goodness of fit (Stress)
+
+```{r}
+# Calculate stress for Euclidean MDS solution
+d1_euclidean <- distance_matrix_euclidian
+d2_euclidean <- as.matrix(dist(mds_result_euclidean$points))
+stress_euclidean <- sum((d1_euclidean - d2_euclidean)^2) / sum(d1_euclidean^2)
+
+# Calculate stress for Manhattan MDS solution
+d1_manhattan <- distance_matrix_manhattan
+d2_manhattan <- as.matrix(dist(mds_result_manhattan$points))
+stress_manhattan <- sum((d1_manhattan - d2_manhattan)^2) / sum(d1_manhattan^2)
+
+# Calculate stress for Correlation MDS solution
+d1_correlation <- as.matrix(dissimilarity_matrix_correlation)
+d2_correlation <- as.matrix(dist(mds_result_correlation$points))
+stress_correlation <- sum((d1_correlation - d2_correlation)^2) / sum(d1_correlation^2)
+```
+
+#### 6) Comparing Metric and Non Metric
+
+```{r}
+# Define non metric MDS with correlation as the distance
+non_metric_mds_result_correlation <- MASS::isoMDS(dissimilarity_matrix_correlation)
+
+# Calculate stress for Correlation MDS solution
+d1_correlation <- as.matrix(dissimilarity_matrix_correlation)
+d2_correlation <- as.matrix(dist(non_metric_mds_result_correlation$points))
+stress_correlation_non_metric <- sum((d1_correlation - d2_correlation)^2) / sum(d1_correlation^2)
+```
+
+#### 7) Bootstrap MDS
+
+```{r}
+# Function to perform Classical MDS and calculate stress with Manhattan or Euclidean distances
+calculate_mds_stress <- function(distance_matrix, distance_method) {
+  mds_result <- cmdscale(distance_matrix, eig = TRUE, k = 2) # Classical MDS
+  if (distance_method == "manhattan") {
+    mds_distance <- as.matrix(dist(mds_result$points, method = "manhattan"))
+  } else if (distance_method == "euclidean") {
+    mds_distance <- as.matrix(dist(mds_result$points))
+  } else {
+    stop("Invalid distance method. Please choose 'manhattan' or 'euclidean'.")
+  }
+  stress <- sum((distance_matrix - mds_distance)^2) / sum(distance_matrix^2)
+  return(stress)
+}
+
+# Function for bootstrapping with standard deviation calculation
+bootstrap_mds_with_stddev <- function(data, distance_method, num_bootstrap = 100) {
+  stresses <- numeric(num_bootstrap)
+  for (i in 1:num_bootstrap) {
+    boot_data <- data[sample(nrow(data), replace = TRUE), ]
+    if (distance_method == "manhattan") {
+      distance_matrix <- as.dist(dist(boot_data, method = "manhattan"))
+    } else if (distance_method == "euclidean") {
+      distance_matrix <- as.dist(dist(boot_data))
+    } else {
+      stop("Invalid distance method. Please choose 'manhattan' or 'euclidean'.")
+    }
+    stresses[i] <- calculate_mds_stress(distance_matrix, distance_method)
+  }
+  list(stress_values = stresses, stddev = sd(stresses))}
+```
+
+#### **8) Permutations**
+
+```{r}
+# Ensure it's converted to a matrix
+d1 <- as.matrix(dissimilarity_matrix_euclidean)
+
+# Define the number of permutations
+n_permutations <- 100
+permuted_stress <- numeric(n_permutations)
+
+for (i in 1:n_permutations) {
+  # Permute the order of rows and columns symmetrically
+  perm_indices <- sample(nrow(d1))
+  permuted_matrix <- d1[perm_indices, perm_indices]
+  
+  # Calculate MDS on the permuted matrix
+  permuted_mds <- cmdscale(permuted_matrix, k = 2)
+  permuted_distances <- as.matrix(dist(permuted_mds))
+  
+  # Calculate stress for the permuted MDS solution
+  permuted_stress[i] <- sum((permuted_matrix - permuted_distances)^2) / sum(permuted_matrix^2)
+}
+
+# Assuming 'mds_result_euclidean' is the result from your MDS analysis
+observed_mds <- mds_result_euclidean
+observed_distances <- as.matrix(dist(observed_mds$points))
+observed_stress <- sum((d1 - observed_distances)^2) / sum(d1^2)
+
+# Calculate p-value
+p_value <- sum(permuted_stress <= observed_stress) / n_permutations
+
+# Print p-value
+cat("P-value for permutation test:", p_value, "\n")
+```
+
+#### 10) Visualizing MDS Results
+
+```{r}
+
+# Extract the first two dimensions for plotting
+mds_coordinates <- mds_result_euclidean$points[, 1:2]
+
+# Convert to a data frame
+mds_df <- as.data.frame(mds_coordinates)
+
+# Add the country names and continents from the original data
+mds_df$country <- country_data_Continents_coordinates$country
+mds_df$continent <- country_data_Continents_coordinates$continent
+
+# Function to determine outliers
+is_outlier <- function(x) {
+  return(abs(x - mean(x)) > 2 * sd(x))
+}
+
+# Apply outlier function to both MDS dimensions
+mds_df$outlier <- is_outlier(mds_df$V1) | is_outlier(mds_df$V2)
+
+# Reorder the data frame so that African data points are plotted last
+mds_df <- rbind(mds_df[mds_df$continent != "Africa", ], mds_df[mds_df$continent == "Africa", ])
+
+# Plot
+ggplot(mds_df, aes(x = V1, y = V2, color = continent)) +
+    geom_point() +  # Plot countries as dots
+    ggrepel::geom_text_repel(aes(label = ifelse(outlier, as.character(country), '')), 
+                             size = 3, max.overlaps = Inf) +  # Label outliers
+    theme_minimal() +
+    labs(title = "2D Visualization of Countries based on Correlation MDS",
+         x = "MDS Dimension 1",
+         y = "MDS Dimension 2",
+         color = "Continent") +
+    theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+## **III) Cluster Analysis**
+
+#### 1) Silhouette score plot
+
+```{r}
+# Function to perform clustering and calculate silhouette scores
+calculate_silhouettes <- function(data, max_clusters = 10) {
+  results <- data.frame(Number_of_Clusters = integer(0),
+                        Method = character(0),
+                        Silhouette_Score = numeric(0))
+
+  for (k in 2:max_clusters) {
+    # K-means clustering
+    kmeans_result <- kmeans(data, centers = k, nstart = 50)
+    sil_kmeans <- silhouette(kmeans_result$cluster, dist(data))
+    mean_sil_kmeans <- mean(sil_kmeans[, "sil_width"])
+    results <- rbind(results, data.frame(Number_of_Clusters = k, Method = "K-means", Silhouette_Score = mean_sil_kmeans))
+
+    # Hierarchical clustering
+    for (method in c("single", "complete", "average")) {
+      hc <- hclust(dist(data), method = method)
+      clust <- cutree(hc, k)
+      sil <- silhouette(clust, dist(data))
+      mean_sil <- mean(sil[, "sil_width"])
+      results <- rbind(results, data.frame(Number_of_Clusters = k, Method = paste0(method, " Linkage"), Silhouette_Score = mean_sil))}}
+
+  return(results)}
+
+silhouette_data <- calculate_silhouettes(normalized_data_without_country_continent)
+
+# Plotting the results
+ggplot(silhouette_data, aes(x = Number_of_Clusters, y = Silhouette_Score, color = Method)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Silhouette Scores for Different Clustering Methods",
+       x = "Number of Clusters",
+       y = "Average Silhouette Score")
+
+```
+
+#### 2) WSS
+
+```{r}
+# Function to perform clustering and calculate WSS (within-cluster sum of squares)
+calculate_wss <- function(data, max_clusters = 10) {
+  results <- data.frame(Number_of_Clusters = integer(0),
+                        Method = character(0),
+                        WSS = numeric(0))
+
+  for (k in 2:max_clusters) {
+    # K-means clustering
+    kmeans_result <- kmeans(data, centers = k, nstart = 50)
+    wss_kmeans <- kmeans_result$tot.withinss
+    results <- rbind(results, data.frame(Number_of_Clusters = k, Method = "K-means", WSS = wss_kmeans))
+
+    # Hierarchical clustering
+    for (method in c("single", "complete", "average")) {
+      hc <- hclust(dist(data), method = method)
+      clust <- cutree(hc, k)
+      wss <- sum(aggregate(data, list(clust), function(x) sum((x - mean(x))^2))[, -1])
+      results <- rbind(results, data.frame(Number_of_Clusters = k, Method = paste0(method, " Linkage"), WSS = wss))}}
+
+  return(results)}
+
+wss_data <- calculate_wss(normalized_data_without_country_continent)
+
+# Plotting the WSS results
+ggplot(wss_data, aes(x = Number_of_Clusters, y = WSS, color = Method)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "WSS for Different Clustering Methods",
+       x = "Number of Clusters",
+       y = "Total Within-Cluster Sum of Squares")
+```
+
+#### 3) imbalance (Std)
+
+```{r}
+calculate_silhouettes_with_imbalance <- function(data, max_clusters = 10) {  results <- data.frame()  # Initialize results data frame
+  for (k in 2:max_clusters) {  # Loop over different cluster numbers
+    imbalance_measure <- function(cluster_assignment) {
+      sd(table(cluster_assignment))  # Helper function to compute imbalance measure
+    }
+    for (method in c("single", "complete", "average")) {  # Loop over hierarchical clustering methods
+      hc <- hclust(dist(data), method = method)  # Perform hierarchical clustering
+      clust <- cutree(hc, k)  # Cut the hierarchical clustering tree
+      imb <- imbalance_measure(clust)  # Calculate imbalance measure
+      results <- rbind(results, data.frame(Number_of_Clusters = k, Method = paste0(method, " linkage"), Imbalance_Measure = imb))  # Append results to data frame
+    } }
+  return(results)}
+
+silhouette_imbalance_data <- calculate_silhouettes_with_imbalance(normalized_data_without_country_continent)  # Compute silhouette scores with imbalance
+
+p2 <- ggplot(silhouette_imbalance_data, aes(x = Number_of_Clusters, y = Imbalance_Measure, color = Method)) +  # Plot imbalance measure
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(expand = c(0, 0), breaks = seq(0, max(silhouette_imbalance_data$Number_of_Clusters), by = 1)) +
+  theme_minimal() +
+  labs(title = "Cluster Imbalance", x = "Number of Clusters", y = "Imbalance Measure (STD)") +
+  scale_color_manual(values = c("darkblue", "darkgreen", "darkred", "grey"))
+```
+
+#### 4) scatter plot for 2 and 3 clusters
+
+```{r}
+# Perform the clustering methods on your MDS coordinates
+kmeans_clusters <- kmeans(mds_coordinates, centers = 2, nstart = 25)
+hc_single_clusters <- cutree(hclust(dist(mds_coordinates), method = "single"), k = 2)
+hc_complete_clusters <- cutree(hclust(dist(mds_coordinates), method = "complete"), k = 2)
+hc_average_clusters <- cutree(hclust(dist(mds_coordinates), method = "average"), k = 2)
+
+# Add the cluster assignments to your data frame
+mds_df$kmeans_cluster <- kmeans_clusters$cluster
+mds_df$single_cluster <- hc_single_clusters
+mds_df$complete_cluster <- hc_complete_clusters
+mds_df$average_cluster <- hc_average_clusters
+
+# Define the base plot without the country labels
+base_plot <- ggplot(mds_df, aes(x = V1, y = V2)) + 
+    geom_point(aes(color = factor(kmeans_cluster))) + 
+    theme_minimal() +
+    theme(legend.position = "none") +
+    labs(x = "MDS Dimension 1", y = "MDS Dimension 2")
+
+# Create each plot for the two clustering methods
+plot_kmeans <- base_plot + geom_point(aes(color = factor(kmeans_cluster))) + ggtitle("K-means")
+plot_single <- base_plot + geom_point(aes(color = factor(single_cluster))) + ggtitle("Single Linkage")
+plot_complete <- base_plot + geom_point(aes(color = factor(complete_cluster))) + ggtitle("Complete Linkage")
+plot_average <- base_plot + geom_point(aes(color = factor(average_cluster))) + ggtitle("Average Linkage")
+
+# Arrange the plots in a 2x2 grid
+grid_plots <- grid.arrange(plot_kmeans, plot_single, plot_complete, plot_average, ncol = 2, nrow = 2)
+
+# Display the grid of plots
+grid_plots
+```
+
+#### 5) Map 
+
+```{r}
+include_graphics("clustered_map_2_clusters_avg_linkage (1).png")
+```
+
+#### 
